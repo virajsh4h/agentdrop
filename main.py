@@ -10,7 +10,7 @@ from scanner import scan_payload
 app = FastAPI(title="AgentDrop", version="1.0.0")
 
 class DropPayload(BaseModel):
-    payload: str = Field(..., description="The string data to securely transfer.")
+    payload: str = Field(..., max_length=102400, description="The string data to securely transfer.")
     ttl_seconds: int = Field(default=3600, ge=60, le=86400)
 
 @app.post("/drop")
@@ -69,22 +69,34 @@ def read_drop(drop_id: str, key: str):
         conn.commit()
         raise HTTPException(status_code=410, detail="Drop expired.")
 
-    # Atomic update to prevent race conditions
+    # Decrypt FIRST to prevent Denial of Service via invalid keys
+    try:
+        plaintext = decrypt_payload(drop["ciphertext"], key)
+    except Exception:
+        # Record failed attempt
+        conn.execute("UPDATE drops SET failed_attempts = failed_attempts + 1 WHERE id = ?", (drop_id,))
+        failed = conn.execute("SELECT failed_attempts FROM drops WHERE id = ?", (drop_id,)).fetchone()["failed_attempts"]
+        
+        if failed >= 3:
+            conn.execute("UPDATE drops SET status = 'revoked' WHERE id = ?", (drop_id,))
+            conn.execute("INSERT INTO receipts (drop_id, action, timestamp) VALUES (?, 'revoked_brute_force', ?)", (drop_id, datetime.now(timezone.utc).isoformat()))
+            conn.commit()
+            conn.close()
+            raise HTTPException(status_code=403, detail="Too many failed attempts. Drop destroyed.")
+            
+        conn.commit()
+        conn.close()
+        raise HTTPException(status_code=400, detail="Invalid decryption key or corrupt payload.")
+        
+    # Atomic update to prevent race conditions on successful reads
     cursor = conn.execute("UPDATE drops SET status = 'used' WHERE id = ? AND status = 'active'", (drop_id,))
     if cursor.rowcount == 0:
         # Another request beat us to it
+        conn.close()
         raise HTTPException(status_code=409, detail="Drop was just consumed.")
 
     conn.execute("INSERT INTO receipts (drop_id, action, timestamp) VALUES (?, 'served', ?)", (drop_id, datetime.now(timezone.utc).isoformat()))
     conn.commit()
-
-    # Decrypt and return
-    try:
-        plaintext = decrypt_payload(drop["ciphertext"], key)
-    except Exception:
-        conn.close()
-        raise HTTPException(status_code=400, detail="Invalid decryption key or corrupt payload.")
-        
     conn.close()
     return {"payload": plaintext, "status": "used"}
 

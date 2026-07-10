@@ -31,7 +31,7 @@ def test_create_drop_missing_payload(client):
 def test_create_drop_large_payload(client):
     large_payload = "A" * 1000000
     res = client.post("/drop", json={"payload": large_payload})
-    assert res.status_code == 200
+    assert res.status_code == 422
 
 def test_read_drop_success(client):
     res = client.post("/drop", json={"payload": "secret_code"})
@@ -50,6 +50,24 @@ def test_read_drop_incorrect_key(client):
     read_res = client.get(f"/x/{drop_id}", params={"key": wrong_key})
     assert read_res.status_code == 400
     assert "Invalid decryption key" in read_res.json()["detail"]
+
+def test_read_drop_brute_force(client):
+    res = client.post("/drop", json={"payload": "secret_code"})
+    drop_id = res.json()["id"]
+    wrong_key = "invalidkeybase64format="
+    
+    res1 = client.get(f"/x/{drop_id}", params={"key": wrong_key})
+    assert res1.status_code == 400
+    
+    res2 = client.get(f"/x/{drop_id}", params={"key": wrong_key})
+    assert res2.status_code == 400
+    
+    res3 = client.get(f"/x/{drop_id}", params={"key": wrong_key})
+    assert res3.status_code == 403
+    assert "Too many failed attempts" in res3.json()["detail"]
+    
+    rec = client.get(f"/receipt/{drop_id}").json()["events"]
+    assert any(e["action"] == "revoked_brute_force" for e in rec)
 
 def test_read_drop_not_found(client):
     read_res = client.get("/x/nonexistent-id", params={"key": "dummy"})

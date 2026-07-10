@@ -18,10 +18,17 @@ def init_db():
         ciphertext TEXT NOT NULL,
         created_at TEXT NOT NULL,
         expires_at TEXT NOT NULL,
-        status TEXT NOT NULL, -- 'active', 'used', 'revoked'
-        revoke_token TEXT NOT NULL
+        status TEXT NOT NULL, -- 'active', 'used', 'revoked', 'expired'
+        revoke_token TEXT NOT NULL,
+        failed_attempts INTEGER DEFAULT 0
     )
     """)
+    
+    # Migration for existing databases
+    try:
+        cursor.execute("ALTER TABLE drops ADD COLUMN failed_attempts INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass # Column already exists
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS receipts (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
