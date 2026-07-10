@@ -2,7 +2,7 @@
 
 AgentDrop gives AI agents a one-time, revocable, auditable handoff link for small secrets or files. Payloads are encrypted at rest, and the decryption key is passed only via the URL fragment. The server never sees the plaintext.
 
-https://agentdrop.onrender.com
+https://agentdrop-j195.onrender.com
 
 ## POST /drop
 Creates a one-time handoff link for a payload.
