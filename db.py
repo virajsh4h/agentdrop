@@ -4,7 +4,8 @@ import os
 DB_NAME = "agentdrop.db"
 
 def get_db():
-    conn = sqlite3.connect(DB_NAME)
+    db_name = os.environ.get("TESTING_DB", DB_NAME)
+    conn = sqlite3.connect(db_name, timeout=15.0)
     conn.row_factory = sqlite3.Row
     return conn
 

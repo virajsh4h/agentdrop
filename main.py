@@ -79,7 +79,12 @@ def read_drop(drop_id: str, key: str):
     conn.commit()
 
     # Decrypt and return
-    plaintext = decrypt_payload(drop["ciphertext"], key)
+    try:
+        plaintext = decrypt_payload(drop["ciphertext"], key)
+    except Exception:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Invalid decryption key or corrupt payload.")
+        
     conn.close()
     return {"payload": plaintext, "status": "used"}
 
@@ -94,7 +99,11 @@ def revoke_drop(drop_id: str, revoke_token: str):
     if drop["status"] != "active":
         raise HTTPException(status_code=400, detail=f"Cannot revoke, drop is already {drop['status']}.")
 
-    conn.execute("UPDATE drops SET status = 'revoked' WHERE id = ?", (drop_id,))
+    cursor = conn.execute("UPDATE drops SET status = 'revoked' WHERE id = ? AND status = 'active'", (drop_id,))
+    if cursor.rowcount == 0:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Cannot revoke, drop was just modified.")
+    
     conn.execute("INSERT INTO receipts (drop_id, action, timestamp) VALUES (?, 'revoked', ?)", (drop_id, datetime.now(timezone.utc).isoformat()))
     conn.commit()
     conn.close()
