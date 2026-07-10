@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+.env
+
+# Pytest
+.pytest_cache/
+
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+agentdrop.db
+agentdrop.db.bak
+
+# OS
+.DS_Store
