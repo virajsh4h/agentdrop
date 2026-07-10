@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🛡️ AgentDrop
+# AgentDrop
 
 **A Secure, Ephemeral Handoff Protocol for AI Agents**
 
@@ -15,45 +15,45 @@
 
 ---
 
-## 🎯 Overview
+## Overview
 
 **AgentDrop** is a stateless, ephemeral data-transfer microservice designed specifically for multi-agent systems. It allows autonomous AI agents to securely exchange sensitive data—such as API keys, access tokens, or private datasets—using one-time, revocable handoff links. 
 
-> 💡 **Design Philosophy**: To maintain strict API simplicity for LLMs and autonomous agents, AgentDrop handles encryption and decryption **server-side**. This removes the need for client agents to bundle, execute, or understand complex cryptography libraries.
+> **Design Philosophy**: To maintain strict API simplicity for LLMs and autonomous agents, AgentDrop handles encryption and decryption **server-side**. This removes the need for client agents to bundle, execute, or understand complex cryptography libraries.
 
 ---
 
-## 🔒 Security & Architecture Features
+## Security & Architecture Features
 
 We take security seriously. AgentDrop is hardened against common attacks and abuse:
 
-- 🔐 **Server-Side Encryption (AES-Fernet):** Payloads are encrypted at rest in the database. The decryption key is generated dynamically, appended to the drop URL, and must be provided back to the server to decrypt and consume the payload.
-- 💥 **True Ephemerality (Burn-After-Reading):** Payloads can be read exactly once. Upon successful decryption, the payload is permanently marked as consumed via atomic SQLite database transactions, mitigating race-condition replay attacks.
-- 🛡️ **Denial of Service Protection:** 
+- **Server-Side Encryption (AES-Fernet):** Payloads are encrypted at rest in the database. The decryption key is generated dynamically, appended to the drop URL, and must be provided back to the server to decrypt and consume the payload.
+- **True Ephemerality (Burn-After-Reading):** Payloads can be read exactly once. Upon successful decryption, the payload is permanently marked as consumed via atomic SQLite database transactions, mitigating race-condition replay attacks.
+- **Denial of Service Protection:** 
   - **3-Strike Lockout:** Drops are only consumed upon *successful* decryption. If a caller fails decryption 3 times, the drop is permanently locked to prevent brute-force attacks.
   - **Rate Limiting:** The creation endpoint is rate-limited (5 requests per minute, per IP) using `slowapi` to prevent resource exhaustion.
   - **Payload Limits:** Strict 100KB size limits prevent database storage exhaustion.
-- 🧾 **Authenticated Audit Receipts:** Every action in a drop's lifecycle is logged. The receipt endpoint requires either the decryption key or the revocation token to view the audit trail, preventing public metadata leakage.
-- 🛑 **Prompt Injection Firewall:** A pre-flight firewall (`scanner.py`) actively scans and blocks payloads containing known LLM prompt injection vectors before they are even stored.
+- **Authenticated Audit Receipts:** Every action in a drop's lifecycle is logged. The receipt endpoint requires either the decryption key or the revocation token to view the audit trail, preventing public metadata leakage.
+- **Prompt Injection Firewall:** A pre-flight firewall (`scanner.py`) actively scans and blocks payloads containing known LLM prompt injection vectors before they are even stored.
 
 ---
 
-## 🏗️ System Architecture
+## System Architecture
 
 ```text
 agentdrop/
-├── main.py             # 🚦 FastAPI routing, rate limiting, and endpoints
-├── db.py               # 🗄️ SQLite schema, WAL mode, and migrations
-├── crypto.py           # 🔑 Fernet symmetric encryption 
-├── scanner.py          # 🛡️ Pre-flight prompt injection firewall
-├── requirements.txt    # 📦 Pinned dependencies (fastapi, slowapi, cryptography)
-├── Dockerfile          # 🐳 OCI-compliant container definition
-└── tests/              # 🧪 Comprehensive test suite with isolated databases
+├── main.py             # FastAPI routing, rate limiting, and endpoints
+├── db.py               # SQLite schema, WAL mode, and migrations
+├── crypto.py           # Fernet symmetric encryption 
+├── scanner.py          # Pre-flight prompt injection firewall
+├── requirements.txt    # Pinned dependencies (fastapi, slowapi, cryptography)
+├── Dockerfile          # OCI-compliant container definition
+└── tests/              # Comprehensive test suite with isolated databases
 ```
 
 ---
 
-## 🚀 Quickstart & Deployment
+## Quickstart & Deployment
 
 AgentDrop uses a local SQLite database configured with Write-Ahead Logging (WAL) for high concurrency. It requires no external services (like Redis or Postgres), making it incredibly portable.
 
@@ -76,7 +76,7 @@ pytest tests/ -v
 uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-### 🐳 Docker Deployment
+### Docker Deployment
 
 AgentDrop includes a production-ready `Dockerfile`. It is ready to be deployed to container-as-a-service providers like Render, Fly.io, or Railway.
 
@@ -87,31 +87,31 @@ docker run -p 80:80 agentdrop
 
 ---
 
-## 📖 API Reference
+## API Reference
 
-### 1️⃣ Create a Drop
+### 1. Create a Drop
 `POST /drop`
 Encrypts a payload (max 100KB) and generates a secure handoff link. Rate-limited to 5 requests per minute.
 - **Request:** `{"payload": "secret_token", "ttl_seconds": 3600}`
 - **Response:** Returns the `id`, the `revoke_token`, and the `url`.
 
-### 2️⃣ Consume a Drop
+### 2. Consume a Drop
 `GET /x/{id}?key={key}`
 Retrieves and decrypts the payload exactly once. 
 - **Response:** `{"payload": "secret_token", "status": "used"}`
 
-### 3️⃣ Revoke a Drop
+### 3. Revoke a Drop
 `POST /revoke/{id}?revoke_token={revoke_token}`
 Permanently destroys a payload before it can be consumed.
 - **Response:** `{"status": "revoked"}`
 
-### 4️⃣ Audit Trail
+### 4. Audit Trail
 `GET /receipt/{id}?key={key}` or `?revoke_token={revoke_token}`
 Returns a chronological ledger of the drop's lifecycle. Requires authentication.
 - **Response:** `{"drop_id": "abc123", "events": [{"action": "created", "timestamp": "..."}]}`
 
 ---
 
-## 🤖 Autonomous Agent Integration
+## Autonomous Agent Integration
 
 AgentDrop provides a [`SKILL.md`](./SKILL.md) file detailing how external LLMs and AI agents can autonomously format requests, handle authentication, and parse API responses. Providing this skill file in an agent's context window allows it to use AgentDrop without human intervention.
