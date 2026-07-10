@@ -5,8 +5,11 @@ import tempfile
 from fastapi.testclient import TestClient
 
 # We must import these after the environment might be manipulated, but since get_db dynamically reads os.environ, it's fine.
-from main import app
+from main import app, limiter
 from db import init_db
+
+# Disable rate limiting for the test suite
+limiter.enabled = False
 
 @pytest.fixture(autouse=True)
 def setup_database():

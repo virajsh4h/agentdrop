@@ -8,7 +8,7 @@ https://agentdrop-j195.onrender.com
 Creates a one-time handoff link for a payload.
 
 Example:
-curl -X POST https://agentdrop.onrender.com/drop \
+curl -X POST https://agentdrop-j195.onrender.com/drop \
 -H "Content-Type: application/json" \
 -d '{"payload":"hello world","ttl_seconds":300}'
 
@@ -19,7 +19,7 @@ Example response:
 Returns the payload once. The second request fails. The `id` is in the path, the `key` is in the query string (extracted from the URL fragment).
 
 Example:
-curl https://agentdrop.onrender.com/x/abc123?key=key123
+curl https://agentdrop-j195.onrender.com/x/abc123?key=key123
 
 Example response:
 {"payload":"hello world","status":"used"}
@@ -28,16 +28,16 @@ Example response:
 Revokes a drop before it is used. Requires the `revoke_token` returned at creation.
 
 Example:
-curl -X POST "https://agentdrop.onrender.com/revoke/abc123?revoke_token=rev123"
+curl -X POST "https://agentdrop-j195.onrender.com/revoke/abc123?revoke_token=rev123"
 
 Example response:
 {"status":"revoked"}
 
-## GET /receipt/{id}
-Returns the audit trail for the drop.
+## GET /receipt/{id}?key={key} (or ?revoke_token={revoke_token})
+Returns the audit trail for the drop. Requires either the decryption key or the revoke token to prevent public metadata leaks.
 
 Example:
-curl https://agentdrop.onrender.com/receipt/abc123
+curl "https://agentdrop-j195.onrender.com/receipt/abc123?key=key123"
 
 Example response:
 {"drop_id":"abc123","events":[{"action":"created","timestamp":"..."},{"action":"served","timestamp":"..."}]}

@@ -1,20 +1,28 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Request
 from pydantic import BaseModel, Field
 from uuid import uuid4
 from datetime import datetime, timedelta, timezone
 import secrets
+from typing import Optional
 from db import get_db
 from crypto import encrypt_payload, decrypt_payload
 from scanner import scan_payload
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
+limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(title="AgentDrop", version="1.0.0")
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 class DropPayload(BaseModel):
     payload: str = Field(..., max_length=102400, description="The string data to securely transfer.")
     ttl_seconds: int = Field(default=3600, ge=60, le=86400)
 
 @app.post("/drop")
-def create_drop(data: DropPayload):
+@limiter.limit("5/minute")
+def create_drop(request: Request, data: DropPayload):
     # 1. Scan for injection
     scan_result = scan_payload(data.payload)
     if scan_result["status"] == "blocked":
@@ -122,11 +130,26 @@ def revoke_drop(drop_id: str, revoke_token: str):
     return {"status": "revoked"}
 
 @app.get("/receipt/{drop_id}")
-def get_receipt(drop_id: str):
+def get_receipt(drop_id: str, key: Optional[str] = None, revoke_token: Optional[str] = None):
     conn = get_db()
-    receipts = conn.execute("SELECT action, timestamp FROM receipts WHERE drop_id = ? ORDER BY timestamp ASC", (drop_id,)).fetchall()
-    if not receipts:
+    
+    drop = conn.execute("SELECT ciphertext, revoke_token FROM drops WHERE id = ?", (drop_id,)).fetchone()
+    if not drop:
         raise HTTPException(status_code=404, detail="No receipt found.")
+        
+    if not key and not revoke_token:
+        raise HTTPException(status_code=401, detail="Authentication required (provide key or revoke_token).")
+        
+    if revoke_token:
+        if drop["revoke_token"] != revoke_token:
+            raise HTTPException(status_code=403, detail="Invalid revoke token.")
+    elif key:
+        try:
+            decrypt_payload(drop["ciphertext"], key)
+        except Exception:
+            raise HTTPException(status_code=403, detail="Invalid decryption key.")
+            
+    receipts = conn.execute("SELECT action, timestamp FROM receipts WHERE drop_id = ? ORDER BY timestamp ASC", (drop_id,)).fetchall()
     return {"drop_id": drop_id, "events": [dict(r) for r in receipts]}
 
 @app.get("/health")

@@ -66,7 +66,8 @@ def test_read_drop_brute_force(client):
     assert res3.status_code == 403
     assert "Too many failed attempts" in res3.json()["detail"]
     
-    rec = client.get(f"/receipt/{drop_id}").json()["events"]
+    revoke_token = res.json()["revoke_token"]
+    rec = client.get(f"/receipt/{drop_id}", params={"revoke_token": revoke_token}).json()["events"]
     assert any(e["action"] == "revoked_brute_force" for e in rec)
 
 def test_read_drop_not_found(client):
@@ -142,29 +143,36 @@ def test_double_revoke(client):
     assert rev_res_2.status_code == 400
 
 def test_receipt_not_found(client):
-    res = client.get("/receipt/nonexistent")
+    res = client.get("/receipt/nonexistent", params={"key": "dummy"})
     assert res.status_code == 404
+
+def test_receipt_unauthorized(client):
+    res = client.post("/drop", json={"payload": "secret"})
+    drop_id = res.json()["id"]
+    res2 = client.get(f"/receipt/{drop_id}")
+    assert res2.status_code == 401
 
 def test_receipt_flow(client):
     res = client.post("/drop", json={"payload": "secret"})
     data = res.json()
     drop_id = data["id"]
     key = data["url"].split("#")[1]
+    revoke_token = data["revoke_token"]
     
-    # 1. Created receipt
-    rec = client.get(f"/receipt/{drop_id}").json()["events"]
+    # 1. Created receipt (auth via revoke_token)
+    rec = client.get(f"/receipt/{drop_id}", params={"revoke_token": revoke_token}).json()["events"]
     assert len(rec) == 1
     assert rec[0]["action"] == "created"
     
-    # 2. Read receipt
+    # 2. Read receipt (auth via key)
     client.get(f"/x/{drop_id}", params={"key": key})
-    rec = client.get(f"/receipt/{drop_id}").json()["events"]
+    rec = client.get(f"/receipt/{drop_id}", params={"key": key}).json()["events"]
     assert len(rec) == 2
     assert rec[1]["action"] == "served"
     
-    # 3. Failed read receipt
+    # 3. Failed read receipt (auth via revoke_token)
     client.get(f"/x/{drop_id}", params={"key": key})
-    rec = client.get(f"/receipt/{drop_id}").json()["events"]
+    rec = client.get(f"/receipt/{drop_id}", params={"revoke_token": revoke_token}).json()["events"]
     assert len(rec) == 3
     assert rec[2]["action"] == "failed_access"
 
