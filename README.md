@@ -1,47 +1,57 @@
 <div align="center">
   <h1>🛡️ AgentDrop</h1>
-  <p><strong>The Secure, Ephemeral Handoff Protocol for the Agentic Web</strong></p>
+  <p><strong>A Secure, Ephemeral Handoff Protocol for AI Agents</strong></p>
+  
+  [![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=flat&logo=fastapi)](https://fastapi.tiangolo.com/)
+  [![SQLite](https://img.shields.io/badge/SQLite-07405E?style=flat&logo=sqlite)](https://www.sqlite.org/)
+  [![pytest](https://img.shields.io/badge/pytest-passing-success?style=flat&logo=pytest)](https://docs.pytest.org/)
 </div>
 
 ---
 
-## 🌌 The Future of Agentic Architecture
+## Overview
 
-As we transition into the era of the **Internet of AI Agents**, autonomous systems will continuously negotiate, collaborate, and transact. But how do two independent, mutually distrusting AI agents securely exchange sensitive data—API keys, access tokens, encrypted payloads, or private datasets—without relying on centralized, persistent storage that is vulnerable to data breaches?
+**AgentDrop** is a stateless, ephemeral data-transfer microservice designed for multi-agent systems. It allows autonomous AI agents to securely exchange sensitive data—such as API keys, access tokens, or private datasets—using one-time, revocable handoff links. 
 
-**AgentDrop** is the answer. It is a stateless-by-design, cryptographic dead-drop service built specifically for multi-agent systems. It ensures that data is passed exactly once, securely, and with a mathematically verifiable audit trail. 
-
-AgentDrop introduces the **Zero-Trust URL Fragment Protocol**. Payloads are encrypted at rest on the server. The decryption key is never seen, stored, or logged by the server; it is passed exclusively through the URL fragment (`#key`), which is processed entirely client-side by the receiving agent. Even if the AgentDrop database is completely compromised, the payloads remain mathematically unreadable.
+To maintain strict API simplicity for LLMs and autonomous agents, AgentDrop handles encryption and decryption **server-side**, removing the need for client agents to bundle or execute complex cryptography libraries.
 
 ---
 
-## ✨ Core Innovations
+## Security & Architecture Features
 
-1. **Zero-Trust Encryption Model:** The payload is encrypted server-side using AES (via Fernet). The decryption key is generated dynamically and appended to the URL as a `#` fragment. Because browsers and HTTP clients do not send URL fragments to the server, the decryption key never touches our logs. 
-2. **True Ephemerality (Burn-After-Reading):** Data is read exactly once. The moment a payload is successfully decrypted, it is mathematically obliterated from active status via atomic database transactions, preventing race-condition replay attacks.
-3. **Agentic Prompt Injection Firewall:** AI agents are highly vulnerable to prompt injection attacks embedded within data payloads. AgentDrop features a pre-flight firewall (`scanner.py`) that actively scans and blocks payloads attempting to hijack the receiving agent's context window.
-4. **Verifiable Audit Receipts:** Every action (creation, consumption, revocation, expiration) is logged in an immutable receipt ledger, providing verifiable proof of handoff for escrow and arbitration services.
+1. **Server-Side Encryption (AES-Fernet):** 
+   Payloads are encrypted at rest in the database. The decryption key is generated dynamically, appended to the drop URL, and must be provided back to the server to decrypt and consume the payload.
+2. **True Ephemerality (Burn-After-Reading):** 
+   Payloads can be read exactly once. Upon successful decryption, the payload is permanently marked as consumed via atomic SQLite database transactions, mitigating race-condition replay attacks.
+3. **Brute-Force & Denial of Service Protection:** 
+   - **3-Strike Lockout:** To prevent attackers from invalidating drops with incorrect keys, drops are only consumed upon successful decryption. If a caller fails decryption 3 times, the drop is permanently locked.
+   - **Rate Limiting:** The creation endpoint is rate-limited (5 requests per minute, per IP) using `slowapi` to prevent resource exhaustion.
+   - **Payload Limits:** Strict 100KB size limits prevent database storage exhaustion.
+4. **Authenticated Audit Receipts:** 
+   Every action in a drop's lifecycle is logged. The receipt endpoint requires either the decryption key or the revocation token to view the audit trail, preventing public metadata leakage.
+5. **Prompt Injection Firewall:** 
+   A pre-flight firewall (`scanner.py`) actively scans and blocks payloads containing known LLM prompt injection vectors before they are stored.
 
 ---
 
-## 🏗️ System Architecture
+## System Architecture
 
 ```text
 agentdrop/
-├── main.py             # FastAPI routing and orchestration
-├── db.py               # SQLite schema and transactional logic
+├── main.py             # FastAPI routing, rate limiting, and endpoints
+├── db.py               # SQLite schema, WAL mode, and migrations
 ├── crypto.py           # Fernet symmetric encryption 
 ├── scanner.py          # Pre-flight prompt injection firewall
-├── requirements.txt    # Minimal, pinned dependencies
+├── requirements.txt    # Pinned dependencies (fastapi, slowapi, cryptography)
 ├── Dockerfile          # OCI-compliant container definition
-└── tests/              # Rigorous QA and invariant testing
+└── tests/              # Comprehensive test suite with isolated databases
 ```
 
 ---
 
-## 🚀 Quickstart & Deployment
+## Quickstart & Deployment
 
-AgentDrop is designed to run anywhere—from a local Jupyter notebook to a globally distributed Kubernetes cluster. It requires zero external dependencies, utilizing a local SQLite file for lightning-fast, portable persistence.
+AgentDrop uses a local SQLite database configured with Write-Ahead Logging (WAL) for high concurrency. It requires no external services (like Redis or Postgres).
 
 ### Local Development
 ```bash
@@ -55,14 +65,14 @@ source venv/bin/activate
 pip install -r requirements.txt
 
 # 3. Run the test suite
-pytest tests/test_api.py
+pytest tests/ -v
 
 # 4. Start the server
 uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-### Docker Deployment (Render, Railway, Fly.io)
-AgentDrop includes a production-ready `Dockerfile`. To deploy, simply connect your GitHub repository to a PaaS provider (like Render or Railway) and select Docker as the runtime environment.
+### Docker Deployment
+AgentDrop includes a production-ready `Dockerfile`. It is ready to be deployed to container-as-a-service providers like Render, Fly.io, or Railway.
 
 ```bash
 docker build -t agentdrop .
@@ -71,33 +81,31 @@ docker run -p 80:80 agentdrop
 
 ---
 
-## 📖 API Reference
+## API Reference
 
 ### 1. Create a Drop
 `POST /drop`
-Encrypts a payload and generates a secure handoff link.
-- **Request:** `{"payload": "super_secret_token", "ttl_seconds": 3600}`
-- **Response:** Returns the `id`, the `revoke_token`, and the `url` containing the key in the fragment.
+Encrypts a payload (max 100KB) and generates a secure handoff link. Rate-limited to 5 requests per minute.
+- **Request:** `{"payload": "secret_token", "ttl_seconds": 3600}`
+- **Response:** Returns the `id`, the `revoke_token`, and the `url`.
 
 ### 2. Consume a Drop
 `GET /x/{id}?key={key}`
 Retrieves and decrypts the payload exactly once. 
-*Note: AI agents must parse the URL fragment from the creation response to extract the `key` parameter.*
-- **Response:** `{"payload": "super_secret_token", "status": "used"}`
+- **Response:** `{"payload": "secret_token", "status": "used"}`
 
 ### 3. Revoke a Drop
 `POST /revoke/{id}?revoke_token={revoke_token}`
-Destroys a payload before it can be consumed. Essential for agents aborting a transaction.
+Permanently destroys a payload before it can be consumed.
+- **Response:** `{"status": "revoked"}`
 
 ### 4. Audit Trail
-`GET /receipt/{id}`
-Returns a chronological ledger of the drop's lifecycle for dispute resolution.
+`GET /receipt/{id}?key={key}` or `?revoke_token={revoke_token}`
+Returns a chronological ledger of the drop's lifecycle. Requires authentication.
+- **Response:** `{"drop_id": "abc123", "events": [{"action": "created", "timestamp": "..."}]}`
 
 ---
 
-## 🤖 The `SKILL.md`
+## Autonomous Agent Integration
 
-AgentDrop is fully compatible with the NANDA Town ecosystem. A complete `SKILL.md` is provided in the repository, instructing external LLM agents exactly how to format payloads, parse fragments, and utilize the API autonomously.
-
----
-*Built for the future. Built for the Internet of Agents.*
+AgentDrop provides a [`SKILL.md`](./SKILL.md) file detailing how external LLMs and AI agents can autonomously format requests, handle authentication, and parse API responses. Providing this skill file in an agent's context window allows it to use AgentDrop without human intervention.
