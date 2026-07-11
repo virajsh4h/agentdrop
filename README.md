@@ -17,24 +17,35 @@
 
 ## Overview
 
-**AgentDrop** is a stateless, ephemeral data-transfer microservice designed specifically for multi-agent systems. It allows autonomous AI agents to securely exchange sensitive data—such as API keys, access tokens, or private datasets—using one-time, revocable handoff links. 
+AgentDrop is a stateless, ephemeral data-transfer microservice designed specifically for multi-agent systems. It allows autonomous AI agents to securely exchange sensitive data—such as API keys, access tokens, or private datasets—using one-time, revocable handoff links. 
 
-> **Design Philosophy**: To maintain strict API simplicity for LLMs and autonomous agents, AgentDrop handles encryption and decryption **server-side**. This removes the need for client agents to bundle, execute, or understand complex cryptography libraries.
+To maintain strict API simplicity for LLMs and autonomous agents, AgentDrop handles encryption and decryption server-side. This removes the need for client agents to bundle, execute, or understand complex cryptography libraries.
 
 ---
 
-## Security & Architecture Features
+## Architecture & Security Implementation
 
-We take security seriously. AgentDrop is hardened against common attacks and abuse:
+AgentDrop is engineered to mitigate specific vulnerabilities common in multi-agent environments.
 
-- **Server-Side Encryption (AES-Fernet):** Payloads are encrypted at rest in the database. The decryption key is generated dynamically, appended to the drop URL, and must be provided back to the server to decrypt and consume the payload.
-- **True Ephemerality (Burn-After-Reading):** Payloads can be read exactly once. Upon successful decryption, the payload is permanently marked as consumed via atomic SQLite database transactions, mitigating race-condition replay attacks.
-- **Denial of Service Protection:** 
-  - **3-Strike Lockout:** Drops are only consumed upon *successful* decryption. If a caller fails decryption 3 times, the drop is permanently locked to prevent brute-force attacks.
-  - **Rate Limiting:** The creation endpoint is rate-limited (5 requests per minute, per IP) using `slowapi` to prevent resource exhaustion.
+- **Server-Side Encryption (AES-Fernet):** Payloads are encrypted at rest in the database. The decryption key is generated dynamically, appended to the drop URL as a fragment, and must be provided back to the server to decrypt and consume the payload.
+- **Race Condition Prevention:** True ephemerality is enforced at the database level. Upon successful decryption, payloads are marked as consumed via atomic SQLite transactions combined with Write-Ahead Logging (WAL) mode. This strictly prevents race-condition replay attacks where concurrent agents attempt to consume the same drop simultaneously.
+- **Prompt Injection Firewall:** A pre-flight firewall (`scanner.py`) actively scans payloads using regex patterns to block known LLM prompt injection vectors (e.g., system prompt overrides, `<|im_start|>` tokens) before they reach the database.
+- **Brute-Force & Denial of Service Protection:**
+  - **3-Strike Lockout:** Drops are only consumed upon successful decryption. If a caller fails decryption 3 times using an invalid key, the drop is permanently locked.
+  - **Rate Limiting:** The creation endpoint is rate-limited to 5 requests per minute per IP using `slowapi` to prevent infrastructure exhaustion.
   - **Payload Limits:** Strict 100KB size limits prevent database storage exhaustion.
-- **Authenticated Audit Receipts:** Every action in a drop's lifecycle is logged. The receipt endpoint requires either the decryption key or the revocation token to view the audit trail, preventing public metadata leakage.
-- **Prompt Injection Firewall:** A pre-flight firewall (`scanner.py`) actively scans and blocks payloads containing known LLM prompt injection vectors before they are even stored.
+- **Authenticated Audit Receipts:** Every action in a drop's lifecycle is logged in an immutable ledger. The receipt endpoint requires either the decryption key or the revocation token to view the audit trail, preventing public metadata leakage.
+
+---
+
+## Testing & Quality Assurance
+
+The system is backed by a rigorous suite of 37 isolated tests covering:
+- Concurrency and race-condition attempts
+- Cryptographic failure states (tampered ciphertext, invalid keys)
+- Brute-force lockout and rate-limiting validation
+- Prompt injection bypass attempts and edge-cases
+- API lifecycle routing (creation, consumption, revocation, and audit)
 
 ---
 
@@ -43,19 +54,19 @@ We take security seriously. AgentDrop is hardened against common attacks and abu
 ```text
 agentdrop/
 ├── main.py             # FastAPI routing, rate limiting, and endpoints
-├── db.py               # SQLite schema, WAL mode, and migrations
+├── db.py               # SQLite schema, WAL mode, and atomic transactions
 ├── crypto.py           # Fernet symmetric encryption 
 ├── scanner.py          # Pre-flight prompt injection firewall
 ├── requirements.txt    # Pinned dependencies (fastapi, slowapi, cryptography)
 ├── Dockerfile          # OCI-compliant container definition
-└── tests/              # Comprehensive test suite with isolated databases
+└── tests/              # 37 comprehensive tests with isolated databases
 ```
 
 ---
 
 ## Quickstart & Deployment
 
-AgentDrop uses a local SQLite database configured with Write-Ahead Logging (WAL) for high concurrency. It requires no external services (like Redis or Postgres), making it incredibly portable.
+AgentDrop requires no external services (like Redis or Postgres), utilizing a local SQLite database for maximum portability.
 
 ### Local Development
 
@@ -78,7 +89,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
 ### Docker Deployment
 
-AgentDrop includes a production-ready `Dockerfile`. It is ready to be deployed to container-as-a-service providers like Render, Fly.io, or Railway.
+AgentDrop includes a production-ready `Dockerfile` intended for deployment to container-as-a-service providers like Render, Fly.io, or Railway.
 
 ```bash
 docker build -t agentdrop .
